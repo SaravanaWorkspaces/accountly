@@ -1,48 +1,81 @@
 // Not marked `server-only`: the migrate and seed CLIs import this module too.
-import fs from "node:fs";
-import path from "node:path";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-
-import { DB_PATH, MIGRATIONS_DIR } from "../lib/paths";
 import * as schema from "./schema";
 
-export { DB_PATH } from "../lib/paths";
+export { MIGRATIONS_DIR } from "../lib/paths";
 
-function createConnection() {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-
-  const sqlite = new Database(DB_PATH);
-  // WAL keeps reads non-blocking while a write is in flight; the busy timeout
-  // covers the brief moments a writer does hold the lock.
-  sqlite.pragma("journal_mode = WAL");
-  sqlite.pragma("synchronous = NORMAL");
-  sqlite.pragma("foreign_keys = ON");
-  sqlite.pragma("busy_timeout = 5000");
-
-  const db = drizzle(sqlite, { schema });
-
-  // Migrating on connect keeps single-file SQLite deploys to one step: ship the
-  // binary, start the server. It is a no-op once the journal is up to date.
-  if (fs.existsSync(MIGRATIONS_DIR)) {
-    migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+/**
+ * Vercel's Postgres integrations export `POSTGRES_URL`; everything else tends to
+ * call it `DATABASE_URL`. Accept either so the app runs unchanged on Vercel, on
+ * Neon, on Supabase and against a local cluster.
+ */
+export function connectionString(): string {
+  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL (or POSTGRES_URL) is not set — Accountly needs a Postgres connection string.",
+    );
   }
+  // Accountly used to keep a SQLite file here. Say so plainly rather than let
+  // `pg` fail with something unrecognisable about an invalid port.
+  if (!/^postgres(ql)?:\/\//.test(url)) {
+    throw new Error(
+      `DATABASE_URL looks like a file path ("${url}"), not a Postgres connection ` +
+        "string. Accountly moved from SQLite to Postgres; set it to postgres://…",
+    );
+  }
+  return url;
+}
 
-  return db;
+/** Managed Postgres nearly always terminates TLS with its own certificate. */
+function sslFor(url: string) {
+  if (/[?&]sslmode=disable\b/.test(url)) return false;
+  return url.includes("localhost") || url.includes("127.0.0.1")
+    ? false
+    : { rejectUnauthorized: false };
+}
+
+function createPool() {
+  const url = connectionString();
+
+  return new Pool({
+    connectionString: url,
+    ssl: sslFor(url),
+    // A serverless instance handles one request at a time, so it has no use for
+    // a wide local pool — and hundreds of instances each holding several
+    // connections is how a Postgres runs out of them. Point this at a pooled
+    // endpoint (Neon's `-pooler` host) in production.
+    max: Number(process.env.PGPOOL_MAX ?? (process.env.VERCEL ? 1 : 10)),
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  });
 }
 
 // Next.js re-evaluates modules on every hot reload in dev; without this the
-// process would leak a file handle per edit.
+// process would leak a pool per edit.
 const globalForDb = globalThis as unknown as {
-  __accountlyDb?: ReturnType<typeof createConnection>;
+  __accountlyPool?: Pool;
 };
 
-export const db = globalForDb.__accountlyDb ?? createConnection();
+const pool = globalForDb.__accountlyPool ?? createPool();
 
 if (process.env.NODE_ENV !== "production") {
-  globalForDb.__accountlyDb = db;
+  globalForDb.__accountlyPool = pool;
 }
 
-export { schema };
+// An idle client dropped by the provider must not take the process down with it.
+pool.on("error", (error) => {
+  console.error("Postgres pool error:", error.message);
+});
+
+/**
+ * Migrations are NOT run from here. On a serverless host this module is
+ * evaluated on every cold start, so migrating on import would race several
+ * instances against each other in the middle of serving requests. Run
+ * `npm run db:migrate` as a deploy step instead.
+ */
+export const db = drizzle(pool, { schema });
+
+export { pool, schema };

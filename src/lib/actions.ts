@@ -74,18 +74,16 @@ export async function createParty(
   }
 
   const id = randomUUID();
-  db.insert(parties)
-    .values({
+  await db.insert(parties).values({
       id,
       name: parsed.data.name,
       type: parsed.data.type,
       phone: parsed.data.phone,
       email: parsed.data.email,
       // Positive if they owe you, negative if you owe them.
-      opening: parseAmount(parsed.data.opening, { allowNegative: true }) ?? 0,
-      createdAt: Date.now(),
-    })
-    .run();
+    opening: parseAmount(parsed.data.opening, { allowNegative: true }) ?? 0,
+    createdAt: Date.now(),
+  });
 
   revalidatePath("/");
   redirect(`/p/${id}`);
@@ -116,11 +114,11 @@ export async function createTransaction(
     return { error: "Enter an amount above zero." };
   }
 
-  const party = db
+  const [party] = await db
     .select({ id: parties.id })
     .from(parties)
     .where(eq(parties.id, parsed.data.partyId))
-    .get();
+    .limit(1);
   if (!party) return { error: "That party no longer exists." };
 
   const files = formData
@@ -142,22 +140,20 @@ export async function createTransaction(
   const now = Date.now();
 
   // One transaction so an entry and its receipts are never half-written.
-  db.transaction((tx) => {
-    tx.insert(transactions)
-      .values({
-        id: txnId,
-        partyId: parsed.data.partyId,
-        type: parsed.data.type,
-        amount,
-        date: isIsoDate(parsed.data.date) ? parsed.data.date : toIsoDate(new Date()),
-        note: parsed.data.note,
-        createdAt: now,
-      })
-      .run();
+  await db.transaction(async (tx) => {
+    await tx.insert(transactions).values({
+      id: txnId,
+      partyId: parsed.data.partyId,
+      type: parsed.data.type,
+      amount,
+      date: isIsoDate(parsed.data.date) ? parsed.data.date : toIsoDate(new Date()),
+      note: parsed.data.note,
+      createdAt: now,
+    });
 
-    for (const [index, file] of stored.entries()) {
-      tx.insert(attachments)
-        .values({
+    if (stored.length > 0) {
+      await tx.insert(attachments).values(
+        stored.map((file, index) => ({
           id: randomUUID(),
           transactionId: txnId,
           name: file.name,
@@ -165,8 +161,8 @@ export async function createTransaction(
           size: file.size,
           storageKey: file.storageKey,
           createdAt: now + index,
-        })
-        .run();
+        })),
+      );
     }
   });
 
@@ -207,14 +203,13 @@ export async function deleteParty(
   }
 
   // Read the storage keys while the rows are still there to read them from.
-  const keys = db
+  const keys = await db
     .select({ storageKey: attachments.storageKey })
     .from(attachments)
     .innerJoin(transactions, eq(attachments.transactionId, transactions.id))
-    .where(eq(transactions.partyId, partyId))
-    .all();
+    .where(eq(transactions.partyId, partyId));
 
-  db.delete(parties).where(eq(parties.id, partyId)).run();
+  await db.delete(parties).where(eq(parties.id, partyId));
 
   // Files after the commit, never before: a stray file on disk costs some
   // bytes, whereas a row pointing at a file that is already gone is a broken

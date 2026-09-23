@@ -11,15 +11,16 @@ tabular **statement**.
 
 ## Stack
 
-Deliberately small. One process, one file on disk, no external services.
+Deliberately small. One process, one database, and object storage only when
+you deploy somewhere without a disk.
 
 | Concern    | Choice                                                        |
 | ---------- | ------------------------------------------------------------- |
 | Framework  | Next.js 16 (App Router, React 19, Server Actions)              |
 | Language   | TypeScript, strict                                             |
 | Styling    | Tailwind CSS v4, design tokens in `src/app/globals.css`         |
-| Database   | SQLite via `better-sqlite3` + Drizzle ORM                       |
-| Migrations | `drizzle-kit`, applied automatically on first connection        |
+| Database   | Postgres via `pg` + Drizzle ORM                                 |
+| Migrations | `drizzle-kit`, applied by `npm run db:migrate` as a deploy step  |
 | Files      | Vercel Blob (private) or `data/uploads`, served through an authorised route |
 | Auth       | Optional single passcode, signed session cookie (`jose`)         |
 
@@ -66,7 +67,8 @@ receipts that were written before it.
 
 ```bash
 npm install
-cp .env.example .env          # then set AUTH_SECRET (see below)
+cp .env.example .env          # then set DATABASE_URL and AUTH_SECRET (see below)
+createdb accountly            # any Postgres will do: local, Neon, Supabase
 npm run db:migrate
 npm run db:seed               # optional: the sample ledger from the design
 npm run dev                   # http://localhost:3000
@@ -76,7 +78,7 @@ npm run dev                   # http://localhost:3000
 
 | Variable               | Required            | Meaning                                                                 |
 | ---------------------- | ------------------- | ----------------------------------------------------------------------- |
-| `DATABASE_URL`         | no                  | Path to the SQLite file. Default `./data/accountly.db`.                  |
+| `DATABASE_URL`         | **yes**             | Postgres connection string. `POSTGRES_URL` is accepted too.             |
 | `UPLOAD_DIR`           | no                  | Where receipts are stored. Default `./data/uploads`.                     |
 | `AUTH_SECRET`          | with `APP_PASSCODE` | 32+ chars, signs the session cookie.                                     |
 | `APP_PASSCODE`         | no                  | Set it and the app is gated. Leave unset and it runs open.               |
@@ -94,9 +96,29 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ```bash
 npm ci
+npm run db:migrate            # before the new code serves a request
 npm run build
 APP_PASSCODE='…' AUTH_SECRET='…' TZ=Asia/Kolkata npm start
 ```
+
+### On Vercel
+
+Nothing in the request path touches the filesystem, which is what Vercel needs —
+`/var/task` is read only and `/tmp` is per-instance and ephemeral, so neither can
+hold a ledger.
+
+1. Add a Postgres store (Vercel Postgres, Neon, Supabase). Point `DATABASE_URL`
+   at its **pooled** endpoint; hundreds of function instances each holding
+   several connections is how a Postgres runs out of them.
+2. Add a Blob store so receipts have somewhere to go — see **Receipts** above.
+3. Set `AUTH_SECRET`, and `APP_PASSCODE` because the deployment is public.
+4. Run the migrations. Either set the build command to
+   `npm run db:migrate && next build`, or run `npm run db:migrate` yourself
+   against the production URL before promoting the deployment.
+
+Migrations deliberately do **not** run on connect. This module is evaluated on
+every cold start, so migrating on import would race several instances against
+each other in the middle of serving requests.
 
 Put it behind TLS (a reverse proxy is fine). The session cookie is marked
 `Secure` whenever `NODE_ENV=production`, so a plain-HTTP production host will
@@ -109,15 +131,15 @@ the attachment route alike.
 
 ### Backups
 
-The database lives in `data/accountly.db`, and receipts live beside it in
-`data/uploads` unless `BLOB_READ_WRITE_TOKEN` is set, in which case Vercel Blob
-holds them and only the database needs backing up here. SQLite runs in WAL mode,
-so copy it with the tool that understands that:
+Two things hold state: the Postgres database and wherever receipts live.
 
 ```bash
-sqlite3 data/accountly.db ".backup '/backups/accountly-$(date +%F).db'"
-cp -r data/uploads /backups/uploads-$(date +%F)
+pg_dump "$DATABASE_URL" -Fc -f "/backups/accountly-$(date +%F).dump"
+cp -r data/uploads /backups/uploads-$(date +%F)   # only when not using Blob
 ```
+
+A managed provider almost certainly takes point-in-time backups for you; check
+before relying on a cron job. Vercel Blob is durable on its own.
 
 ## Layout
 
@@ -170,15 +192,16 @@ parties, and read on the server so the first paint is already right.
 ## Database commands
 
 ```bash
-npm run db:migrate   # apply migrations (also runs automatically on connect)
+npm run db:migrate   # apply migrations — run this as a deploy step
 npm run db:seed      # add the design's sample ledger, if the DB is empty
 npm run db:reset     # wipe, migrate, seed
 npm run db:clear     # wipe to a completely empty ledger, schema only
 npm run db:generate  # regenerate SQL after editing src/db/schema.ts
 ```
 
-`db:clear` removes `data/accountly.db` and `data/uploads` and re-applies
-migrations, leaving you on the "Nobody here yet" empty state.
+`db:clear` deletes every row and empties `data/uploads`, leaving the schema in
+place and the app on its "Nobody here yet" empty state. Receipts already in
+Vercel Blob are not touched.
 
 ## Tests
 

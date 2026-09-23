@@ -1,41 +1,47 @@
 /**
  * Empties the ledger: `npm run db:clear`.
  *
- * Deletes rows rather than unlinking the database file. Removing the file out
- * from under a running dev server leaves that process holding a handle to the
- * deleted inode — it keeps serving and writing stale data that never reaches
- * disk. Clearing in place means a running server sees the empty ledger on its
- * very next query.
+ * Deletes rows rather than dropping tables, so a running dev server sees the
+ * empty ledger on its very next query without needing a migration first.
+ * Receipts already in Vercel Blob are left alone; only rows and the local
+ * upload directory are cleared.
  */
 import "dotenv/config";
 
 import fs from "node:fs";
 
-import { db } from "./index";
+import { db, pool, connectionString } from "./index";
 import { attachments, parties, transactions } from "./schema";
-import { DB_PATH, UPLOAD_DIR } from "../lib/paths";
+import { UPLOAD_DIR } from "../lib/paths";
 
-const before = db.select({ id: parties.id }).from(parties).all().length;
+async function main() {
+  const before = (await db.select({ id: parties.id }).from(parties)).length;
 
-// Order matters only for clarity; the foreign keys cascade anyway.
-db.transaction((tx) => {
-  tx.delete(attachments).run();
-  tx.delete(transactions).run();
-  tx.delete(parties).run();
-});
+  // Order matters only for clarity; the foreign keys cascade anyway.
+  await db.transaction(async (tx) => {
+    await tx.delete(attachments);
+    await tx.delete(transactions);
+    await tx.delete(parties);
+  });
 
-// Reclaim the pages the deleted rows were using.
-db.$client.exec("VACUUM");
-
-let removedFiles = 0;
-if (fs.existsSync(UPLOAD_DIR)) {
-  for (const name of fs.readdirSync(UPLOAD_DIR)) {
-    fs.rmSync(`${UPLOAD_DIR}/${name}`, { force: true });
-    removedFiles += 1;
+  let removedFiles = 0;
+  if (fs.existsSync(UPLOAD_DIR)) {
+    for (const name of fs.readdirSync(UPLOAD_DIR)) {
+      fs.rmSync(`${UPLOAD_DIR}/${name}`, { force: true });
+      removedFiles += 1;
+    }
   }
+
+  const shown = connectionString().replace(/\/\/([^:]+):[^@]+@/, "//$1:***@");
+  console.log(
+    `Cleared ${before} ${before === 1 ? "party" : "parties"} and ${removedFiles} ` +
+      `attachment file${removedFiles === 1 ? "" : "s"} from ${shown}`,
+  );
+
+  await pool.end();
 }
 
-console.log(
-  `Cleared ${before} ${before === 1 ? "party" : "parties"} and ${removedFiles} ` +
-    `attachment file${removedFiles === 1 ? "" : "s"} from ${DB_PATH}`,
-);
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

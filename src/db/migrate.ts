@@ -1,9 +1,22 @@
-/** Standalone migration runner: `npm run db:migrate`. */
+/** Standalone migration runner: `npm run db:migrate`. Run it as a deploy step. */
 import "dotenv/config";
 
-import { db, DB_PATH } from "./index";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
 
-// Importing `db` runs the migrations. Touch it so the import is not elided.
-void db;
+import { db, pool, connectionString, MIGRATIONS_DIR } from "./index";
 
-console.log(`Migrations applied to ${DB_PATH}`);
+async function main() {
+  await migrate(db, { migrationsFolder: MIGRATIONS_DIR });
+  // Hide the password before this ends up in a deploy log.
+  console.log(`Migrations applied to ${redacted()}`);
+  await pool.end();
+}
+
+function redacted(): string {
+  return connectionString().replace(/\/\/([^:]+):[^@]+@/, "//$1:***@");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

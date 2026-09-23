@@ -2,8 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // better-sqlite3 is a native module: keep it external to the server bundle.
-  serverExternalPackages: ["better-sqlite3"],
+  // pg ships optional native bits it resolves at runtime: keep it external to
+  // the server bundle rather than let the bundler try to trace them.
+  serverExternalPackages: ["pg"],
   poweredByHeader: false,
   experimental: {
     // Receipt photos travel through a Server Action, so the default 1 MB body

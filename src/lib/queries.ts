@@ -10,8 +10,12 @@ import { TXN_TYPES } from "./types";
 /**
  * `SUM(dir * amount)` expressed in SQL so a party's balance is computed by the
  * database rather than by pulling every entry into the process.
+ *
+ * Typed as a string because that is what arrives: node-postgres hands back
+ * `bigint` and `count` as strings rather than risk a lossy number. Every reader
+ * below puts it through `Number()`, which is exact to 2^53.
  */
-const signedAmount = sql<number>`sum(case ${sql.join(
+const signedAmount = sql<string | null>`sum(case ${sql.join(
   TXN_TYPES.map(
     (t) => sql`when ${transactions.type} = ${t.id} then ${transactions.amount} * ${t.dir}`,
   ),
@@ -25,10 +29,12 @@ export async function listParties(query = ""): Promise<PartySummary[]> {
 
   const filter = term
     ? or(
-        // SQLite's LIKE is case-insensitive for ASCII, which matches the
-        // design's lowercase name search; phone stays a substring match.
-        sql`${parties.name} like ${pattern} escape '\\'`,
-        sql`${parties.phone} like ${pattern} escape '\\'`,
+        // ILIKE, not LIKE: Postgres's LIKE is case-sensitive, where SQLite's was
+        // not for ASCII. The design searches a lowercase box against names
+        // typed in title case, so the case-insensitive form is the behaviour to
+        // keep. Phone stays a substring match.
+        sql`${parties.name} ilike ${pattern} escape '\\'`,
+        sql`${parties.phone} ilike ${pattern} escape '\\'`,
       )
     : undefined;
 
@@ -42,7 +48,7 @@ export async function listParties(query = ""): Promise<PartySummary[]> {
       opening: parties.opening,
       movement: signedAmount,
       lastDate: sql<string | null>`max(${transactions.date})`,
-      entryCount: sql<number>`count(${transactions.id})`,
+      entryCount: sql<string>`count(${transactions.id})`,
     })
     .from(parties)
     .leftJoin(transactions, eq(transactions.partyId, parties.id))
@@ -59,7 +65,7 @@ export async function listParties(query = ""): Promise<PartySummary[]> {
     phone: row.phone,
     email: row.email,
     opening: row.opening,
-    balance: row.opening + (row.movement ?? 0),
+    balance: row.opening + Number(row.movement ?? 0),
     lastDate: row.lastDate,
     entryCount: Number(row.entryCount ?? 0),
   }));
@@ -85,7 +91,7 @@ export async function getPartyStakes(
   const [row] = await db
     .select({
       movement: signedAmount,
-      entryCount: sql<number>`count(${transactions.id})`,
+      entryCount: sql<string>`count(${transactions.id})`,
     })
     .from(transactions)
     .where(eq(transactions.partyId, id));
