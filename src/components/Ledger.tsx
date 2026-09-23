@@ -7,19 +7,28 @@ import { dayLabel, shortDate, type DayContext } from "@/lib/dates";
 import { LEDGER_STYLE_COOKIE, type LedgerStyle } from "@/lib/ledger-style";
 import { fileBadge, isImage, shortFileName } from "@/lib/mime";
 import { formatMoney } from "@/lib/money";
+import { balanceLabel, balanceTone } from "@/lib/party";
 import { isInflow, txnMeta, type Attachment, type Transaction } from "@/lib/types";
 
 export function Ledger({
   entries,
+  opening,
   days,
   initialStyle,
 }: {
   entries: Transaction[];
+  /** Minor units the ledger starts from. Positive = they owe you. */
+  opening: number;
   days: DayContext;
   initialStyle: LedgerStyle;
 }) {
   const [style, setStyle] = useState<LedgerStyle>(initialStyle);
   const [viewing, setViewing] = useState<Attachment | null>(null);
+
+  // A zero opening is not a fact worth a line; anything else is where the
+  // running balance actually starts, and the statement does not add up without
+  // it on the page.
+  const hasOpening = opening !== 0;
 
   // Newest first, both here and in the statement.
   const recentFirst = useMemo(() => [...entries].reverse(), [entries]);
@@ -55,11 +64,12 @@ export function Ledger({
         </div>
       </div>
 
-      {entries.length === 0 ? (
+      {entries.length === 0 && !hasOpening ? (
         <div className="rounded-[18px] border border-dashed border-line-dash bg-surface px-5 py-[34px] text-center text-[15px] text-muted">
           <p>No entries yet — log the first payment above.</p>
         </div>
       ) : style === "chat" ? (
+        // Newest first, so the balance the ledger opened with sits at the foot.
         <div className="flex flex-col gap-5">
           {groups.map((group) => (
             <div key={group.date} className="flex flex-col gap-2.5">
@@ -75,10 +85,22 @@ export function Ledger({
               ))}
             </div>
           ))}
+          {hasOpening ? <OpeningMarker opening={opening} /> : null}
         </div>
       ) : (
-        <Statement entries={recentFirst} days={days} onOpenFile={setViewing} />
+        <Statement
+          entries={recentFirst}
+          opening={hasOpening ? opening : null}
+          days={days}
+          onOpenFile={setViewing}
+        />
       )}
+
+      {entries.length === 0 && hasOpening ? (
+        <p className="mt-3 text-center text-[13px] text-muted">
+          No entries yet — log the first payment above.
+        </p>
+      ) : null}
 
       <FileViewer file={viewing} onClose={() => setViewing(null)} />
     </>
@@ -159,10 +181,13 @@ function Bubble({
 
 function Statement({
   entries,
+  opening,
   days,
   onOpenFile,
 }: {
   entries: Transaction[];
+  /** Minor units, or null when there is nothing to carry forward. */
+  opening: number | null;
   days: DayContext;
   onOpenFile: (file: Attachment) => void;
 }) {
@@ -207,6 +232,57 @@ function Statement({
           </div>
         );
       })}
+
+      {opening !== null ? <OpeningRow opening={opening} /> : null}
+    </div>
+  );
+}
+
+/**
+ * The statement's last line. Tinted apart from the entries above it because it
+ * is not something that happened on a day — it is what the ledger inherited.
+ */
+function OpeningRow({ opening }: { opening: number }) {
+  const owed = opening > 0;
+  const amount = formatMoney(opening);
+
+  return (
+    <div className="grid grid-cols-[1fr_76px_76px] items-center gap-2 border-t border-line bg-header-row px-4 py-3.5 sm:grid-cols-[1fr_96px_96px]">
+      <span className="flex min-w-0 flex-col gap-[3px]">
+        <span className="text-sm font-semibold text-ink">Opening balance</span>
+        <span className="truncate text-xs text-subtle">Carried forward</span>
+      </span>
+      <span className="text-right font-mono text-[15px] text-in">
+        {owed ? amount : ""}
+      </span>
+      <span className="text-right font-mono text-[15px] text-out">
+        {owed ? "" : amount}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The bubble stream's opening. Centred rather than pushed to a side: the
+ * left/right split means money in or out, and this is neither — it is where the
+ * ledger starts.
+ */
+function OpeningMarker({ opening }: { opening: number }) {
+  const tone = balanceTone(opening);
+
+  return (
+    <div className="flex flex-col items-center gap-1 rounded-[16px] border border-dashed border-line-dash bg-surface px-4 py-3.5 text-center">
+      <span className="text-[11px] uppercase tracking-[0.1em] text-subtle">
+        Opening balance
+      </span>
+      <span
+        className={`font-mono text-lg font-medium ${
+          tone === "in" ? "text-in" : tone === "out" ? "text-out" : "text-subtle"
+        }`}
+      >
+        {formatMoney(opening)}
+      </span>
+      <span className="text-xs text-muted">{balanceLabel(opening)}</span>
     </div>
   );
 }

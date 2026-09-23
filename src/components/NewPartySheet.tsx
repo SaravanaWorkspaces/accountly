@@ -2,12 +2,15 @@
 
 import { useActionState, useEffect, useState } from "react";
 
+import { AmountInWords } from "./AmountInWords";
 import { Field } from "./Field";
 import { Sheet } from "./Sheet";
 import { SubmitButton } from "./SubmitButton";
 
 import { createParty } from "@/lib/actions";
 import { idleState } from "@/lib/action-state";
+import { parseAmount } from "@/lib/money";
+import { balanceLabel } from "@/lib/party";
 import { PARTY_TYPES } from "@/lib/types";
 import type { PartyType } from "@/lib/types";
 
@@ -20,11 +23,14 @@ export function NewPartySheet({
 }) {
   const [state, formAction] = useActionState(createParty, idleState);
   const [type, setType] = useState<PartyType>("Customer");
+  const [opening, setOpening] = useState("");
   // A stale error under a field the user has since corrected is noise; it
   // clears on the next edit and comes back only if the server rejects again.
   const [showError, setShowError] = useState(true);
 
   useEffect(() => setShowError(true), [state]);
+
+  const openingMinor = parseAmount(opening, { allowNegative: true });
 
   return (
     <Sheet open={open} title="Add a party" onClose={onClose}>
@@ -62,15 +68,26 @@ export function NewPartySheet({
 
         <Field label="Phone" name="phone" inputMode="tel" placeholder="Optional" autoComplete="off" maxLength={40} />
         <Field label="Email" name="email" inputMode="email" placeholder="Optional" autoComplete="off" maxLength={160} />
-        <Field
-          label="Opening balance"
-          name="opening"
-          inputMode="decimal"
-          placeholder="0"
-          inputClassName="font-mono"
-          hint="Positive if they owe you, negative if you owe them."
-          maxLength={24}
-        />
+        <div className="flex flex-col gap-2">
+          <Field
+            label="Opening balance"
+            name="opening"
+            inputMode="decimal"
+            placeholder="0"
+            inputClassName="font-mono"
+            hint="Positive if they owe you, negative if you owe them."
+            maxLength={24}
+            value={opening}
+            onChange={(event) => setOpening(event.target.value)}
+          />
+          {/* The sign carries meaning here, so it picks both the colour and the
+              caption — the same words the ledger uses for a balance. */}
+          <AmountInWords
+            minor={openingMinor}
+            tone={openingMinor !== null && openingMinor < 0 ? "out" : "in"}
+            caption={openingMinor === null ? undefined : balanceLabel(openingMinor)}
+          />
+        </div>
 
         {state.error && showError ? (
           <p role="alert" className="text-[13px] text-out">

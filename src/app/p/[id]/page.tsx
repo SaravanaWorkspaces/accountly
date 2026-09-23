@@ -88,7 +88,12 @@ export default async function PartyPage({
         />
       </section>
 
-      <Ledger entries={entries} days={days} initialStyle={style} />
+      <Ledger
+        entries={entries}
+        opening={party.opening}
+        days={days}
+        initialStyle={style}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 
+import { AmountInWords } from "./AmountInWords";
 import { Field } from "./Field";
 import { Sheet } from "./Sheet";
 import { SubmitButton } from "./SubmitButton";
@@ -16,7 +17,8 @@ import {
   TOO_MANY_MESSAGE,
   isOversize,
 } from "@/lib/upload-limits";
-import { TXN_TYPES, txnMeta, type TxnType } from "@/lib/types";
+import { parseAmount } from "@/lib/money";
+import { TXN_TYPES, isInflow, txnMeta, type TxnType } from "@/lib/types";
 
 type Pending = { key: string; file: File; url: string | null };
 
@@ -37,6 +39,7 @@ export function TxnSheet({
 }) {
   const [state, formAction] = useActionState(createTransaction, idleState);
   const [type, setType] = useState<TxnType>(initialType);
+  const [amount, setAmount] = useState("");
   const [pending, setPending] = useState<Pending[]>([]);
   // Rejections from the picker itself, shown without a round-trip to the
   // server. `storeUpload` re-checks all of this regardless.
@@ -60,6 +63,7 @@ export function TxnSheet({
   useEffect(() => {
     if (state.savedAt && state.savedAt !== savedAt.current) {
       savedAt.current = state.savedAt;
+      setAmount("");
       setPending([]);
       setFileError(null);
       onClose();
@@ -68,6 +72,7 @@ export function TxnSheet({
 
   useEffect(() => {
     if (open) return;
+    setAmount("");
     setFileError(null);
     setPending((current) => {
       current.forEach((item) => item.url && URL.revokeObjectURL(item.url));
@@ -163,15 +168,23 @@ export function TxnSheet({
           })}
         </div>
 
-        <Field
-          label="Amount"
-          name="amount"
-          inputMode="decimal"
-          placeholder="0"
-          autoComplete="off"
-          maxLength={24}
-          inputClassName="min-h-[60px] py-3.5 text-[26px] font-mono font-medium"
-        />
+        <div className="flex flex-col gap-2">
+          <Field
+            label="Amount"
+            name="amount"
+            inputMode="decimal"
+            placeholder="0"
+            autoComplete="off"
+            maxLength={24}
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            inputClassName="min-h-[60px] py-3.5 text-[26px] font-mono font-medium"
+          />
+          <AmountInWords
+            minor={parseAmount(amount)}
+            tone={isInflow(type) ? "in" : "out"}
+          />
+        </div>
 
         <div className="flex flex-wrap gap-2.5">
           <Field
