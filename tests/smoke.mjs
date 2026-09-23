@@ -62,6 +62,7 @@ check("empty party name rejected", true);
 const sheet = page.getByRole("dialog");
 await sheet.getByLabel(/^Name/).fill(partyName);
 await sheet.getByRole("button", { name: "Merchant", exact: true }).click();
+await sheet.getByRole("button", { name: /Phone and email/ }).click();
 await sheet.getByLabel("Phone").fill("90000 12345");
 await sheet.getByLabel("Opening balance").fill("-1500.50");
 await page.getByRole("button", { name: "Save party" }).click();
@@ -103,14 +104,15 @@ await page.getByRole("button", { name: "Save entry" }).click();
 await page.getByRole("dialog").waitFor({ state: "detached", timeout: 15000 });
 check("entry saved and sheet closed", true);
 
-// Balance: -1500.50 opening + 2400.75 received = 900.25 -> "₹900"
+// Balance: -1500.50 opening − 2400.75 received = −3901.25 -> "₹3,901".
+// Cash received from a party settles what they owe, so it lowers the balance.
 await page.waitForFunction(
-  () => document.querySelector("section .font-mono")?.textContent === "₹900",
+  () => document.querySelector("section .font-mono")?.textContent === "₹3,901",
   null,
   { timeout: 15000 },
 );
-check("balance recomputed after entry", true, "₹900 (they owe you)");
-check("positive balance relabelled", await page.getByText("They owe you").first().isVisible());
+check("balance recomputed after entry", true, "₹3,901 (you owe them)");
+check("balance stays on the 'You owe them' side", await page.getByText("You owe them").first().isVisible());
 
 // --- Statement / Bubbles toggle -----------------------------------------
 await page.getByRole("button", { name: "Statement" }).click();

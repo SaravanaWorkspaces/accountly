@@ -7,18 +7,31 @@ import { dayLabel, shortDate, type DayContext } from "@/lib/dates";
 import { LEDGER_STYLE_COOKIE, type LedgerStyle } from "@/lib/ledger-style";
 import { fileBadge, isImage, shortFileName } from "@/lib/mime";
 import { formatMoney } from "@/lib/money";
+import { ledgerSide, openingSide } from "@/lib/accounting";
 import { balanceLabel, balanceTone } from "@/lib/party";
-import { isInflow, txnMeta, type Attachment, type Transaction } from "@/lib/types";
+import {
+  isInflow,
+  txnMeta,
+  type Attachment,
+  type PartyType,
+  type Transaction,
+} from "@/lib/types";
 
 export function Ledger({
   entries,
   opening,
+  balance,
+  partyType,
   days,
   initialStyle,
 }: {
   entries: Transaction[];
   /** Minor units the ledger starts from. Positive = they owe you. */
   opening: number;
+  /** Minor units still outstanding, opening included. */
+  balance: number;
+  /** Debit and credit swap sides between a customer and a merchant. */
+  partyType: PartyType;
   days: DayContext;
   initialStyle: LedgerStyle;
 }) {
@@ -29,6 +42,11 @@ export function Ledger({
   // running balance actually starts, and the statement does not add up without
   // it on the page.
   const hasOpening = opening !== 0;
+
+  // An entry for exactly what is still owed is the one that squares the account
+  // off — worth spotting without doing the arithmetic by eye.
+  const outstanding = Math.abs(balance);
+  const tallies = (amount: number) => outstanding > 0 && amount === outstanding;
 
   // Newest first, both here and in the statement.
   const recentFirst = useMemo(() => [...entries].reverse(), [entries]);
@@ -81,7 +99,12 @@ export function Ledger({
                 <span className="h-px flex-1 bg-line" />
               </div>
               {group.entries.map((entry) => (
-                <Bubble key={entry.id} entry={entry} onOpenFile={setViewing} />
+                <Bubble
+                  key={entry.id}
+                  entry={entry}
+                  tallies={tallies(entry.amount)}
+                  onOpenFile={setViewing}
+                />
               ))}
             </div>
           ))}
@@ -91,6 +114,8 @@ export function Ledger({
         <Statement
           entries={recentFirst}
           opening={hasOpening ? opening : null}
+          partyType={partyType}
+          tallies={tallies}
           days={days}
           onOpenFile={setViewing}
         />
@@ -132,27 +157,40 @@ function StyleTab({
 
 function Bubble({
   entry,
+  tallies,
   onOpenFile,
 }: {
   entry: Transaction;
+  tallies: boolean;
   onOpenFile: (file: Attachment) => void;
 }) {
   const inflow = isInflow(entry.type);
 
   return (
     <div className={`flex ${inflow ? "justify-start" : "justify-end"}`}>
+      {/*
+        The fill keeps saying which way the money went; only the outline
+        changes, so a tallying entry stands out without losing that. Exactly one
+        border class is applied — two would leave the winner to stylesheet
+        order rather than to intent.
+      */}
       <div
-        className={`flex max-w-[min(88%,420px)] flex-col gap-2 rounded-[18px] border px-4 py-3.5 ${
-          inflow ? "border-in-line bg-in-bg" : "border-out-line bg-out-bg"
-        }`}
+        className={`flex max-w-[min(88%,420px)] flex-col gap-2 rounded-[18px] px-4 py-3.5 ${
+          tallies
+            ? "border-2 border-accent"
+            : inflow
+              ? "border border-in-line"
+              : "border border-out-line"
+        } ${inflow ? "bg-in-bg" : "bg-out-bg"}`}
       >
-        <div className="flex items-baseline justify-between gap-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <span
             className={`text-xs font-semibold uppercase tracking-[0.06em] ${
               inflow ? "text-in" : "text-out"
             }`}
           >
             {txnMeta(entry.type).label}
+            {tallies ? <TallyChip /> : null}
           </span>
           <span
             className={`font-mono text-xl font-medium ${inflow ? "text-in" : "text-out"}`}
@@ -182,34 +220,61 @@ function Bubble({
 function Statement({
   entries,
   opening,
+  partyType,
+  tallies,
   days,
   onOpenFile,
 }: {
   entries: Transaction[];
   /** Minor units, or null when there is nothing to carry forward. */
   opening: number | null;
+  partyType: PartyType;
+  tallies: (amount: number) => boolean;
   days: DayContext;
   onOpenFile: (file: Attachment) => void;
 }) {
+  // `entries` arrives newest first. Walk it backwards so each row carries the
+  // balance as it stood *after* that entry, the way a passbook reads.
+  const runningAfter = new Map<string, number>();
+  let running = opening ?? 0;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    running += txnMeta(entry.type).dir * entry.amount;
+    runningAfter.set(entry.id, running);
+  }
+
   return (
     <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
-      <div className="grid grid-cols-[1fr_76px_76px] gap-2 border-b border-line bg-header-row px-4 py-3 text-[11px] uppercase tracking-[0.08em] text-subtle sm:grid-cols-[1fr_96px_96px]">
+      <div className="grid grid-cols-[1fr_68px_68px_78px] gap-2 border-b border-line bg-header-row px-4 py-3 text-[11px] uppercase tracking-[0.08em] text-subtle sm:grid-cols-[1fr_88px_88px_96px]">
         <span>Entry</span>
-        <span className="text-right">Received</span>
-        <span className="text-right">Paid</span>
+        {/*
+          Which column an amount lands in comes from `ledgerSide`, and it
+          mirrors between the two kinds of party: money in from a customer is a
+          credit to you, money in from a merchant is a debit. The colour still
+          tracks the direction of the cash, not the column.
+        */}
+        <span className="text-right">Debit</span>
+        <span className="text-right">Credit</span>
+        <span className="text-right">Balance</span>
       </div>
 
       {entries.map((entry) => {
         const inflow = isInflow(entry.type);
+        const side = ledgerSide(partyType, entry.type);
+        const tone = inflow ? "text-in" : "text-out";
         const amount = formatMoney(entry.amount);
+        const squares = tallies(entry.amount);
         return (
           <div
             key={entry.id}
-            className="grid grid-cols-[1fr_76px_76px] items-center gap-2 border-b border-line-soft px-4 py-3.5 last:border-b-0 sm:grid-cols-[1fr_96px_96px]"
+            className={`grid grid-cols-[1fr_68px_68px_78px] items-center gap-2 border-b border-line-soft px-4 py-3.5 last:border-b-0 sm:grid-cols-[1fr_88px_88px_96px] ${
+              squares ? "bg-accent-bg" : ""
+            }`}
           >
             <span className="flex min-w-0 flex-col gap-[3px]">
               <span className="text-sm font-semibold text-ink">
                 {txnMeta(entry.type).label}
+                {squares ? <TallyChip /> : null}
               </span>
               <span className="truncate text-xs text-subtle">
                 {entry.note ? `${entry.note} · ` : ""}
@@ -223,11 +288,18 @@ function Statement({
                 </span>
               ) : null}
             </span>
-            <span className="text-right font-mono text-[15px] text-in">
-              {inflow ? amount : ""}
+            <span
+              className={`text-right font-mono text-[15px] ${side === "debit" ? tone : ""}`}
+            >
+              {side === "debit" ? amount : ""}
             </span>
-            <span className="text-right font-mono text-[15px] text-out">
-              {inflow ? "" : amount}
+            <span
+              className={`text-right font-mono text-[15px] ${side === "credit" ? tone : ""}`}
+            >
+              {side === "credit" ? amount : ""}
+            </span>
+            <span className="text-right font-mono text-[15px] text-body">
+              {formatMoney(runningAfter.get(entry.id) ?? 0)}
             </span>
           </div>
         );
@@ -243,22 +315,37 @@ function Statement({
  * is not something that happened on a day — it is what the ledger inherited.
  */
 function OpeningRow({ opening }: { opening: number }) {
-  const owed = opening > 0;
+  const side = openingSide(opening);
+  const tone = opening > 0 ? "text-in" : "text-out";
   const amount = formatMoney(opening);
 
   return (
-    <div className="grid grid-cols-[1fr_76px_76px] items-center gap-2 border-t border-line bg-header-row px-4 py-3.5 sm:grid-cols-[1fr_96px_96px]">
+    <div className="grid grid-cols-[1fr_68px_68px_78px] items-center gap-2 border-t border-line bg-header-row px-4 py-3.5 sm:grid-cols-[1fr_88px_88px_96px]">
       <span className="flex min-w-0 flex-col gap-[3px]">
         <span className="text-sm font-semibold text-ink">Opening balance</span>
         <span className="truncate text-xs text-subtle">Carried forward</span>
       </span>
-      <span className="text-right font-mono text-[15px] text-in">
-        {owed ? amount : ""}
+      <span
+        className={`text-right font-mono text-[15px] ${side === "debit" ? tone : ""}`}
+      >
+        {side === "debit" ? amount : ""}
       </span>
-      <span className="text-right font-mono text-[15px] text-out">
-        {owed ? "" : amount}
+      <span
+        className={`text-right font-mono text-[15px] ${side === "credit" ? tone : ""}`}
+      >
+        {side === "credit" ? amount : ""}
       </span>
+      <span className="text-right font-mono text-[15px] text-body">{amount}</span>
     </div>
+  );
+}
+
+/** Marks an entry whose amount is exactly what is still outstanding. */
+function TallyChip() {
+  return (
+    <span className="ml-1.5 inline-block rounded-full border border-accent-line bg-accent-bg px-1.5 py-[1px] align-middle text-[10px] font-semibold tracking-[0.04em] text-accent">
+      Tallies
+    </span>
   );
 }
 

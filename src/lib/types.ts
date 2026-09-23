@@ -4,26 +4,36 @@ export type TxnType = "in" | "out" | "advin" | "advout";
 export const PARTY_TYPES: readonly PartyType[] = ["Customer", "Merchant"];
 
 /**
- * The four ledger entry kinds. `dir` is the sign the entry applies to a
- * party's balance: +1 means the party owes you more.
+ * The four ledger entry kinds.
+ *
+ * `flow` is which way the cash moved — it drives the colours and which side of
+ * the bubble stream an entry sits on.
+ *
+ * `dir` is the sign the entry applies to the party's balance, where +1 means
+ * the party owes you more. The two are **opposites**, and deliberately so:
+ * money coming in from a customer settles part of what they owe, so it lowers
+ * the balance. Keeping them as separate fields is what stops "cash in" and
+ * "balance up" being confused for each other.
  */
 export const TXN_TYPES: readonly {
   id: TxnType;
   label: string;
+  flow: "in" | "out";
   dir: 1 | -1;
 }[] = [
-  { id: "in", label: "Received", dir: 1 },
-  { id: "out", label: "Paid", dir: -1 },
-  { id: "advin", label: "Advance received", dir: 1 },
-  { id: "advout", label: "Advance paid", dir: -1 },
+  { id: "in", label: "Received", flow: "in", dir: -1 },
+  { id: "out", label: "Paid", flow: "out", dir: 1 },
+  { id: "advin", label: "Advance received", flow: "in", dir: -1 },
+  { id: "advout", label: "Advance paid", flow: "out", dir: 1 },
 ];
 
 export function txnMeta(type: TxnType) {
   return TXN_TYPES.find((t) => t.id === type) ?? TXN_TYPES[0];
 }
 
+/** Did the cash come in? Not the same question as "did the balance go up". */
 export function isInflow(type: TxnType) {
-  return txnMeta(type).dir > 0;
+  return txnMeta(type).flow === "in";
 }
 
 export type Attachment = {

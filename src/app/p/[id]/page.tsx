@@ -91,6 +91,8 @@ export default async function PartyPage({
       <Ledger
         entries={entries}
         opening={party.opening}
+        balance={balance}
+        partyType={party.type}
         days={days}
         initialStyle={style}
       />

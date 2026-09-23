@@ -1,6 +1,8 @@
 import "server-only";
 
-import { asc, eq, inArray, or, sql } from "drizzle-orm";
+import { cache } from "react";
+
+import { asc, eq, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { attachments, parties, transactions } from "@/db/schema";
@@ -71,10 +73,14 @@ export async function listParties(query = ""): Promise<PartySummary[]> {
   }));
 }
 
-export async function getParty(id: string): Promise<Party | null> {
+/**
+ * Wrapped in `cache` so the two callers inside one render — `generateMetadata`
+ * and the page itself — cost a single query rather than two round trips.
+ */
+export const getParty = cache(async (id: string): Promise<Party | null> => {
   const [row] = await db.select().from(parties).where(eq(parties.id, id)).limit(1);
   return row ?? null;
-}
+});
 
 /**
  * What a party would take with it if it were deleted: its name, how many
@@ -111,41 +117,46 @@ export async function getPartyLedger(
 
   // Oldest first: the statement and the bubble stream both read top-down as a
   // running history, and the newest-first views just reverse this.
-  const txnRows = await db
-    .select()
+  //
+  // One joined read rather than entries-then-attachments: the second query
+  // could only start once the first had returned, and a sequential round trip
+  // is the expensive part when the database is across a network.
+  const rows = await db
+    .select({ txn: transactions, file: attachments })
     .from(transactions)
+    .leftJoin(attachments, eq(attachments.transactionId, transactions.id))
     .where(eq(transactions.partyId, id))
-    .orderBy(asc(transactions.date), asc(transactions.createdAt));
+    .orderBy(
+      asc(transactions.date),
+      asc(transactions.createdAt),
+      asc(attachments.createdAt),
+    );
 
-  const files = txnRows.length
-    ? await db
-        .select()
-        .from(attachments)
-        .where(
-          inArray(
-            attachments.transactionId,
-            txnRows.map((t) => t.id),
-          ),
-        )
-        .orderBy(asc(attachments.createdAt))
-    : [];
+  const entries: Transaction[] = [];
+  let current: Transaction | undefined;
 
-  const byTxn = new Map<string, Transaction["attachments"]>();
-  for (const file of files) {
-    const list = byTxn.get(file.transactionId) ?? [];
-    list.push({ id: file.id, name: file.name, mime: file.mime, size: file.size });
-    byTxn.set(file.transactionId, list);
+  for (const { txn, file } of rows) {
+    if (current?.id !== txn.id) {
+      current = {
+        id: txn.id,
+        partyId: txn.partyId,
+        type: txn.type as TxnType,
+        amount: txn.amount,
+        date: txn.date,
+        note: txn.note,
+        attachments: [],
+      };
+      entries.push(current);
+    }
+    if (file) {
+      current.attachments.push({
+        id: file.id,
+        name: file.name,
+        mime: file.mime,
+        size: file.size,
+      });
+    }
   }
-
-  const entries: Transaction[] = txnRows.map((t) => ({
-    id: t.id,
-    partyId: t.partyId,
-    type: t.type as TxnType,
-    amount: t.amount,
-    date: t.date,
-    note: t.note,
-    attachments: byTxn.get(t.id) ?? [],
-  }));
 
   const balance = entries.reduce((total, entry) => {
     const dir = TXN_TYPES.find((t) => t.id === entry.type)?.dir ?? 1;

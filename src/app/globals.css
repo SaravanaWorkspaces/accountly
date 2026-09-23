@@ -22,6 +22,9 @@
   /* Accent */
   --color-accent: #c8622a;
   --color-accent-strong: #8f4318;
+  /* Tint for an entry whose amount squares off the outstanding balance. */
+  --color-accent-bg: #fbeee6;
+  --color-accent-line: #efd5c3;
 
   /* Money in (received) */
   --color-in: #1f6b4a;

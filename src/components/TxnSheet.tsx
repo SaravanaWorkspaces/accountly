@@ -150,7 +150,7 @@ export function TxnSheet({
         <div className="grid grid-cols-2 gap-2.5" role="group" aria-label="Entry type">
           {TXN_TYPES.map((option) => {
             const active = type === option.id;
-            const inflow = option.dir > 0;
+            const inflow = option.flow === "in";
             const activeClass = inflow
               ? "border-in bg-in-bg text-in"
               : "border-out bg-out-bg text-out";

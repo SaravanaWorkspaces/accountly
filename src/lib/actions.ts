@@ -114,13 +114,6 @@ export async function createTransaction(
     return { error: "Enter an amount above zero." };
   }
 
-  const [party] = await db
-    .select({ id: parties.id })
-    .from(parties)
-    .where(eq(parties.id, parsed.data.partyId))
-    .limit(1);
-  if (!party) return { error: "That party no longer exists." };
-
   const files = formData
     .getAll("files")
     .filter((entry): entry is File => entry instanceof File && entry.size > 0);
@@ -139,32 +132,48 @@ export async function createTransaction(
   const txnId = randomUUID();
   const now = Date.now();
 
-  // One transaction so an entry and its receipts are never half-written.
-  await db.transaction(async (tx) => {
-    await tx.insert(transactions).values({
-      id: txnId,
-      partyId: parsed.data.partyId,
-      type: parsed.data.type,
-      amount,
-      date: isIsoDate(parsed.data.date) ? parsed.data.date : toIsoDate(new Date()),
-      note: parsed.data.note,
-      createdAt: now,
-    });
+  const entry = {
+    id: txnId,
+    partyId: parsed.data.partyId,
+    type: parsed.data.type,
+    amount,
+    date: isIsoDate(parsed.data.date) ? parsed.data.date : toIsoDate(new Date()),
+    note: parsed.data.note,
+    createdAt: now,
+  };
 
-    if (stored.length > 0) {
-      await tx.insert(attachments).values(
-        stored.map((file, index) => ({
-          id: randomUUID(),
-          transactionId: txnId,
-          name: file.name,
-          mime: file.mime,
-          size: file.size,
-          storageKey: file.storageKey,
-          createdAt: now + index,
-        })),
-      );
+  const receipts = stored.map((file, index) => ({
+    id: randomUUID(),
+    transactionId: txnId,
+    name: file.name,
+    mime: file.mime,
+    size: file.size,
+    storageKey: file.storageKey,
+    createdAt: now + index,
+  }));
+
+  try {
+    if (receipts.length === 0) {
+      // Most entries carry no receipt, and a lone INSERT is one round trip
+      // where a transaction is four: BEGIN, INSERT, COMMIT and the connection
+      // handling around them. Nothing here can be half-written.
+      await db.insert(transactions).values(entry);
+    } else {
+      // One transaction so an entry and its receipts are never half-written.
+      await db.transaction(async (tx) => {
+        await tx.insert(transactions).values(entry);
+        await tx.insert(attachments).values(receipts);
+      });
     }
-  });
+  } catch (error) {
+    // The party's foreign key does the existence check that used to cost a
+    // SELECT on every save. It only fails if the party went away mid-entry.
+    if (isMissingParty(error)) {
+      await Promise.all(stored.map((file) => deleteStoredFile(file.storageKey)));
+      return { error: "That party no longer exists." };
+    }
+    throw error;
+  }
 
   revalidatePath("/");
   revalidatePath(`/p/${parsed.data.partyId}`);
@@ -244,6 +253,11 @@ export async function signIn(
 export async function signOut(): Promise<void> {
   (await cookies()).delete(SESSION_COOKIE);
   redirect("/login");
+}
+
+/** Postgres 23503: the row pointed at a party that is no longer there. */
+function isMissingParty(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === "23503";
 }
 
 /** Confirmation is about intent, not typing precision: fold case and spacing. */

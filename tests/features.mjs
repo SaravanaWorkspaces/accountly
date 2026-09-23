@@ -100,6 +100,7 @@ check(
   (await sheet.getByRole("button", { name: "Customer", exact: true }).getAttribute("aria-pressed")) ===
     "true",
 );
+await sheet.getByRole("button", { name: /Phone and email/ }).click();
 await sheet.getByLabel("Phone").fill("98450 11234");
 await sheet.getByLabel("Email").fill("ramesh@example.com");
 await page.getByRole("button", { name: "Save party" }).click();
@@ -114,19 +115,21 @@ check("zero balance is neutral", (await page.locator("section .font-mono").first
 check("no entries yet state", await page.getByText(/No entries yet/).isVisible());
 await page.screenshot({ path: path.join(SHOTS, "f02-new-party.png"), fullPage: true });
 
-// Second party: a Merchant with a negative opening balance.
+// Second party: a Merchant carrying a positive opening, so the list has one
+// card on each side of the balance. smoke.mjs covers the negative opening.
 await page.getByRole("button", { name: /New party/ }).click();
 sheet = page.getByRole("dialog");
 await sheet.getByLabel(/^Name/).fill("Sunrise Stationery");
 await sheet.getByRole("button", { name: "Merchant", exact: true }).click();
+await sheet.getByRole("button", { name: /Phone and email/ }).click();
 await sheet.getByLabel("Phone").fill("90080 44120");
-await sheet.getByLabel("Opening balance").fill("-2000");
+await sheet.getByLabel("Opening balance").fill("2000");
 await page.getByRole("button", { name: "Save party" }).click();
 await page.waitForURL(/\/p\/[0-9a-f-]{36}$/, { timeout: 15000 });
 const sunriseUrl = page.url();
 check("merchant with negative opening created", true);
 await page.getByRole("heading", { name: "Sunrise Stationery" }).waitFor();
-check("opening balance reads 'You owe them'", await page.getByText("You owe them").isVisible());
+check("opening balance reads 'They owe you'", await page.getByText("They owe you").isVisible());
 check(
   "opening amount shown unsigned",
   (await page.locator("section .font-mono").first().innerText()) === "₹2,000",
@@ -159,14 +162,15 @@ await addEntry({ type: "Advance received", amount: 5000, note: "Advance for next
 await addEntry({ type: "Paid", amount: 1500, note: "Damage adjustment", daysAgo: 6 });
 await addEntry({ type: "Advance paid", amount: 500, note: "Courier on their behalf", daysAgo: 9 });
 
-// 12000 + 5000 - 1500 - 500 = 15000
+// Cash in lowers the balance, cash out raises it:
+// −12000 − 5000 + 1500 + 500 = −15000 -> "₹15,000" on the "You owe them" side.
 await page.waitForFunction(
   () => document.querySelector("section .font-mono")?.textContent === "₹15,000",
   null,
   { timeout: 15000 },
 );
-check("all four entry types applied with correct signs", true, "12000 + 5000 − 1500 − 500 = ₹15,000");
-check("positive balance reads 'They owe you'", await page.getByText("They owe you").isVisible());
+check("all four entry types applied with correct signs", true, "−12000 − 5000 + 1500 + 500 = −₹15,000");
+check("negative balance reads 'You owe them'", await page.getByText("You owe them").isVisible());
 
 // ── 5. Statement view ─────────────────────────────────────────────────────
 section("Ledger views");
