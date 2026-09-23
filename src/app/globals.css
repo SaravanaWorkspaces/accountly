@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces */
+  --color-canvas: #fbf7f0;
+  --color-surface: #ffffff;
+  --color-raised: #f2ece0;
+  --color-header-row: #f7f2e8;
+
+  /* Lines */
+  --color-line: #e7e0d4;
+  --color-line-soft: #f2ece0;
+  --color-line-dash: #ded6c7;
+
+  /* Ink */
+  --color-ink: #1b1a17;
+  --color-body: #4a463e;
+  --color-muted: #6e6a61;
+  --color-subtle: #8c8679;
+  --color-faint: #a8a296;
+
+  /* Accent */
+  --color-accent: #c8622a;
+  --color-accent-strong: #8f4318;
+
+  /* Money in (received) */
+  --color-in: #1f6b4a;
+  --color-in-bg: #eaf3ec;
+  --color-in-line: #cfe3d5;
+  --color-in-hover: #ddebe1;
+
+  /* Money out (paid) */
+  --color-out: #b3462f;
+  --color-out-bg: #faebe6;
+  --color-out-line: #eed5cc;
+  --color-out-hover: #f4dfd8;
+  /* Pressed state for a filled red button — the destructive confirm. */
+  --color-out-strong: #8f3624;
+
+  --font-sans: var(--font-instrument-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-instrument-serif), ui-serif, Georgia, serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --animate-up-in: up-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade-in: fade-in 0.16s ease-out;
+}
+
+@keyframes up-in {
+  from { transform: translateY(18px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    /* Respect notches / home indicators on mobile. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  a {
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: var(--color-accent-strong);
+    text-decoration: underline;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+  }
+
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  button:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 1px;
+  }
+
+  /* Native date input should not look alien inside our rounded fields. */
+  input[type="date"] {
+    appearance: none;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; }
+
+  /*
+   * Some controls are deliberately small — the ledger toggle, the receipt
+   * chips. This grows the tappable box to 44px without touching the drawn
+   * size, so thumbs get a fair target and the layout stays as designed.
+   */
+  .tap-target {
+    position: relative;
+  }
+
+  .tap-target::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

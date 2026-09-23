@@ -1,0 +1,11 @@
+import { chromium } from "playwright";
+const b = await chromium.launch();
+const p = await (await b.newContext()).newPage();
+await p.goto("http://localhost:3000", { waitUntil: "networkidle" });
+await p.getByRole("button", { name: /New party/ }).click();
+await p.getByRole("dialog").waitFor();
+await p.getByRole("dialog").getByLabel(/^Name/).fill("Post Clear Party");
+await p.getByRole("button", { name: "Save party" }).click();
+await p.waitForURL(/\/p\/[0-9a-f-]{36}$/, { timeout: 15000 });
+console.log("saved, heading =", await p.locator("h1").innerText());
+await b.close();
