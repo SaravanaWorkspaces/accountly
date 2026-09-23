@@ -116,3 +116,16 @@ export function amountInWords(minor: number, locale: string = LOCALE): string {
 
   return capitalise(`${head} and ${tail}`);
 }
+
+/**
+ * Past three digits a figure stops being readable at a glance — ₹125000 and
+ * ₹12500 look alike in a hurry — which is where the words earn their place.
+ */
+export const SPELL_OUT_FROM = 1000;
+
+/** The words for an amount, or null while it is short enough to read as digits. */
+export function amountWordsFor(minor: number | null): string | null {
+  if (minor === null || !Number.isFinite(minor)) return null;
+  if (Math.floor(Math.abs(minor) / 100) < SPELL_OUT_FROM) return null;
+  return amountInWords(minor);
+}

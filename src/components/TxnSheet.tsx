@@ -2,7 +2,6 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 
-import { AmountInWords } from "./AmountInWords";
 import { Field } from "./Field";
 import { Sheet } from "./Sheet";
 import { SubmitButton } from "./SubmitButton";
@@ -17,8 +16,9 @@ import {
   TOO_MANY_MESSAGE,
   isOversize,
 } from "@/lib/upload-limits";
+import { amountWordsFor } from "@/lib/amount-words";
 import { parseAmount } from "@/lib/money";
-import { TXN_TYPES, isInflow, txnMeta, type TxnType } from "@/lib/types";
+import { TXN_TYPES, txnMeta, type TxnType } from "@/lib/types";
 
 type Pending = { key: string; file: File; url: string | null };
 
@@ -58,6 +58,8 @@ export function TxnSheet({
   }, [open, initialType]);
 
   useEffect(() => setShowError(true), [state]);
+
+  const amountWords = amountWordsFor(parseAmount(amount));
 
   // A save returns a fresh `savedAt`; that is the signal to close and reset.
   useEffect(() => {
@@ -168,7 +170,7 @@ export function TxnSheet({
           })}
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           <Field
             label="Amount"
             name="amount"
@@ -180,10 +182,13 @@ export function TxnSheet({
             onChange={(event) => setAmount(event.target.value)}
             inputClassName="min-h-[60px] py-3.5 text-[26px] font-mono font-medium"
           />
-          <AmountInWords
-            minor={parseAmount(amount)}
-            tone={isInflow(type) ? "in" : "out"}
-          />
+          {amountWords ? (
+            // Outside the <label>, so a figure that changes on every keystroke
+            // does not keep rewriting the input's accessible name.
+            <p aria-live="polite" className="text-[13px] leading-snug text-muted">
+              {amountWords}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap gap-2.5">

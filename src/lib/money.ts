@@ -18,21 +18,6 @@ export function formatMoney(minor: number): string {
 }
 
 /**
- * `"₹1,234.56"` — the exact value, paise and all.
- *
- * For confirming what is being typed, where the ledger's rounding to whole
- * rupees would quietly disagree with the amount spelled out beside it.
- */
-export function formatMoneyExact(minor: number): string {
-  const total = Math.abs(Math.round(minor));
-  const major = Math.floor(total / 100).toLocaleString(LOCALE);
-  const fraction = total % 100;
-  return fraction === 0
-    ? `${CURRENCY}${major}`
-    : `${CURRENCY}${major}.${String(fraction).padStart(2, "0")}`;
-}
-
-/**
  * Parse user input into minor units. Mirrors the tolerant behaviour of the
  * design: strip anything that is not a digit, dot or leading minus.
  */
