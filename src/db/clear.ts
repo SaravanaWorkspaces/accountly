@@ -10,7 +10,7 @@ import "dotenv/config";
 
 import fs from "node:fs";
 
-import { db, pool, connectionString } from "./index";
+import { db, closeDb, connectionString } from "./index";
 import { attachments, parties, transactions } from "./schema";
 import { UPLOAD_DIR } from "../lib/paths";
 
@@ -38,7 +38,7 @@ async function main() {
       `attachment file${removedFiles === 1 ? "" : "s"} from ${shown}`,
   );
 
-  await pool.end();
+  await closeDb();
 }
 
 main().catch((error) => {

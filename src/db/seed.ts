@@ -3,7 +3,7 @@ import "dotenv/config";
 
 import { randomUUID } from "node:crypto";
 
-import { db, pool } from "./index";
+import { db, closeDb } from "./index";
 import { parties, transactions } from "./schema";
 import { toIsoDate } from "../lib/dates";
 
@@ -17,7 +17,7 @@ async function main() {
   const existing = await db.select({ id: parties.id }).from(parties);
   if (existing.length > 0) {
     console.log(`Skipping seed: ${existing.length} parties already present.`);
-    await pool.end();
+    await closeDb();
     process.exit(0);
   }
 
@@ -51,7 +51,7 @@ async function main() {
 
   console.log("Seeded 4 parties and 7 entries.");
 
-  await pool.end();
+  await closeDb();
 }
 
 main().catch((error) => {

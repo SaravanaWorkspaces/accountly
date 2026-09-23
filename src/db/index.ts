@@ -1,5 +1,5 @@
 // Not marked `server-only`: the migrate and seed CLIs import this module too.
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 import * as schema from "./schema";
@@ -37,10 +37,10 @@ function sslFor(url: string) {
     : { rejectUnauthorized: false };
 }
 
-function createPool() {
+function createPool(): Pool {
   const url = connectionString();
 
-  return new Pool({
+  const created = new Pool({
     connectionString: url,
     ssl: sslFor(url),
     // A serverless instance handles one request at a time, so it has no use for
@@ -51,31 +51,71 @@ function createPool() {
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
   });
+
+  // An idle client dropped by the provider must not take the process down.
+  created.on("error", (error) => {
+    console.error("Postgres pool error:", error.message);
+  });
+
+  return created;
 }
 
 // Next.js re-evaluates modules on every hot reload in dev; without this the
 // process would leak a pool per edit.
 const globalForDb = globalThis as unknown as {
   __accountlyPool?: Pool;
+  __accountlyDb?: NodePgDatabase<typeof schema>;
 };
 
-const pool = globalForDb.__accountlyPool ?? createPool();
+/**
+ * Everything below is built on first use, never on import.
+ *
+ * `next build` collects page data by importing each route module, and a cold
+ * start imports them again before any request arrives. A module that reads
+ * configuration — or opens a socket — while it is being evaluated turns a
+ * missing or wrong environment variable into a failed build rather than a
+ * failed request. Importing this module does nothing; the first query is what
+ * needs a database.
+ */
+let poolRef: Pool | undefined;
+let dbRef: NodePgDatabase<typeof schema> | undefined;
 
-if (process.env.NODE_ENV !== "production") {
-  globalForDb.__accountlyPool = pool;
+export function getPool(): Pool {
+  // Module scope holds it in every environment — a pool per call would open a
+  // new set of connections on every query. The global is only a dev extra, so
+  // a hot reload reuses the pool instead of leaking one per edit.
+  poolRef ??= globalForDb.__accountlyPool ?? createPool();
+  if (process.env.NODE_ENV !== "production") globalForDb.__accountlyPool = poolRef;
+  return poolRef;
 }
 
-// An idle client dropped by the provider must not take the process down with it.
-pool.on("error", (error) => {
-  console.error("Postgres pool error:", error.message);
-});
+function getDb(): NodePgDatabase<typeof schema> {
+  dbRef ??= globalForDb.__accountlyDb ?? drizzle(getPool(), { schema });
+  if (process.env.NODE_ENV !== "production") globalForDb.__accountlyDb = dbRef;
+  return dbRef;
+}
 
 /**
- * Migrations are NOT run from here. On a serverless host this module is
+ * Migrations are NOT run from here either. On a serverless host this module is
  * evaluated on every cold start, so migrating on import would race several
  * instances against each other in the middle of serving requests. Run
- * `npm run db:migrate` as a deploy step instead.
+ * `npm run db:migrate` as a deploy step.
  */
-export const db = drizzle(pool, { schema });
+export const db = new Proxy({} as NodePgDatabase<typeof schema>, {
+  get(_target, property) {
+    const real = getDb();
+    const value = Reflect.get(real, property, real);
+    return typeof value === "function" ? value.bind(real) : value;
+  },
+});
 
-export { pool, schema };
+/** For the CLIs, which should exit rather than hold the process open. */
+export async function closeDb(): Promise<void> {
+  if (poolRef) await poolRef.end();
+  poolRef = undefined;
+  dbRef = undefined;
+  globalForDb.__accountlyPool = undefined;
+  globalForDb.__accountlyDb = undefined;
+}
+
+export { schema };
