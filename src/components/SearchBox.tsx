@@ -44,7 +44,7 @@ export function SearchBox({ initialQuery }: { initialQuery: string }) {
         onChange={(event) => setValue(event.target.value)}
         placeholder="Search a name or phone"
         aria-label="Search parties by name or phone"
-        className="min-h-12 w-full rounded-[14px] border border-line bg-surface px-4 py-3.5 text-[15px] text-ink placeholder:text-faint"
+        className="min-h-12 w-full rounded-[14px] border border-line bg-surface px-4 py-3.5 text-base text-ink placeholder:text-faint"
       />
     </div>
   );

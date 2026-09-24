@@ -245,7 +245,12 @@ function Statement({
 
   return (
     <div className="overflow-hidden rounded-[18px] border border-line bg-surface">
-      <div className="grid grid-cols-[1fr_68px_68px_78px] gap-2 border-b border-line bg-header-row px-4 py-3 text-[11px] uppercase tracking-[0.08em] text-subtle sm:grid-cols-[1fr_88px_88px_96px]">
+      {/*
+        Four money columns cannot fit a phone — a lakh-sized figure alone wants
+        most of one — so below `sm` each row stacks and carries its own Dr/Cr
+        marker instead. The header belongs to the column layout only.
+      */}
+      <div className="hidden border-b border-line bg-header-row px-4 py-3 text-[11px] uppercase tracking-[0.08em] text-subtle sm:grid sm:grid-cols-[1fr_88px_88px_96px] sm:gap-2">
         <span>Entry</span>
         {/*
           Which column an amount lands in comes from `ledgerSide`, and it
@@ -267,11 +272,11 @@ function Statement({
         return (
           <div
             key={entry.id}
-            className={`grid grid-cols-[1fr_68px_68px_78px] items-center gap-2 border-b border-line-soft px-4 py-3.5 last:border-b-0 sm:grid-cols-[1fr_88px_88px_96px] ${
+            className={`grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 px-4 py-3.5 sm:grid-cols-[1fr_88px_88px_96px] sm:gap-2 border-b border-line-soft last:border-b-0 ${
               squares ? "bg-accent-bg" : ""
             }`}
           >
-            <span className="flex min-w-0 flex-col gap-[3px]">
+            <span className="col-start-1 row-start-1 flex min-w-0 flex-col gap-[3px] sm:col-auto sm:row-auto">
               <span className="text-sm font-semibold text-ink">
                 {txnMeta(entry.type).label}
                 {squares ? <TallyChip /> : null}
@@ -288,17 +293,18 @@ function Statement({
                 </span>
               ) : null}
             </span>
-            <span
-              className={`text-right font-mono text-[15px] ${side === "debit" ? tone : ""}`}
-            >
-              {side === "debit" ? amount : ""}
+            {/* Only one of these ever has content, so sharing a cell on a
+                phone is safe; from `sm` they split into their own columns. */}
+            <span className={`col-start-2 row-start-1 text-right font-mono text-[15px] sm:col-auto sm:row-auto ${side === "debit" ? tone : ""}`}>
+              {side === "debit" ? <SideAmount side="Dr" amount={amount} /> : ""}
             </span>
-            <span
-              className={`text-right font-mono text-[15px] ${side === "credit" ? tone : ""}`}
-            >
-              {side === "credit" ? amount : ""}
+            <span className={`col-start-2 row-start-1 text-right font-mono text-[15px] sm:col-auto sm:row-auto ${side === "credit" ? tone : ""}`}>
+              {side === "credit" ? <SideAmount side="Cr" amount={amount} /> : ""}
             </span>
-            <span className="text-right font-mono text-[15px] text-body">
+            <span className="col-start-2 row-start-2 text-right font-mono text-[15px] text-body sm:col-auto sm:row-auto">
+              <span className="pr-1 font-sans text-[11px] uppercase tracking-[0.06em] text-faint sm:hidden">
+                Bal
+              </span>
               {formatMoney(runningAfter.get(entry.id) ?? 0)}
             </span>
           </div>
@@ -320,23 +326,36 @@ function OpeningRow({ opening }: { opening: number }) {
   const amount = formatMoney(opening);
 
   return (
-    <div className="grid grid-cols-[1fr_68px_68px_78px] items-center gap-2 border-t border-line bg-header-row px-4 py-3.5 sm:grid-cols-[1fr_88px_88px_96px]">
-      <span className="flex min-w-0 flex-col gap-[3px]">
+    <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 px-4 py-3.5 sm:grid-cols-[1fr_88px_88px_96px] sm:gap-2 border-t border-line bg-header-row">
+      <span className="col-start-1 row-start-1 flex min-w-0 flex-col gap-[3px] sm:col-auto sm:row-auto">
         <span className="text-sm font-semibold text-ink">Opening balance</span>
         <span className="truncate text-xs text-subtle">Carried forward</span>
       </span>
-      <span
-        className={`text-right font-mono text-[15px] ${side === "debit" ? tone : ""}`}
-      >
-        {side === "debit" ? amount : ""}
+      <span className={`col-start-2 row-start-1 text-right font-mono text-[15px] sm:col-auto sm:row-auto ${side === "debit" ? tone : ""}`}>
+        {side === "debit" ? <SideAmount side="Dr" amount={amount} /> : ""}
       </span>
-      <span
-        className={`text-right font-mono text-[15px] ${side === "credit" ? tone : ""}`}
-      >
-        {side === "credit" ? amount : ""}
+      <span className={`col-start-2 row-start-1 text-right font-mono text-[15px] sm:col-auto sm:row-auto ${side === "credit" ? tone : ""}`}>
+        {side === "credit" ? <SideAmount side="Cr" amount={amount} /> : ""}
       </span>
-      <span className="text-right font-mono text-[15px] text-body">{amount}</span>
+      <span className="col-start-2 row-start-2 text-right font-mono text-[15px] text-body sm:col-auto sm:row-auto">
+        <span className="pr-1 font-sans text-[11px] uppercase tracking-[0.06em] text-faint sm:hidden">
+          Bal
+        </span>
+        {amount}
+      </span>
     </div>
+  );
+}
+
+/** Carries the column's meaning on a phone, where there are no headers. */
+function SideAmount({ side, amount }: { side: "Dr" | "Cr"; amount: string }) {
+  return (
+    <>
+      <span className="pr-1 font-sans text-[11px] uppercase tracking-[0.06em] opacity-70 sm:hidden">
+        {side}
+      </span>
+      {amount}
+    </>
   );
 }
 

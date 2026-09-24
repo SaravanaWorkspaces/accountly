@@ -199,7 +199,6 @@ export function TxnSheet({
             defaultValue={today}
             max={today}
             className="flex-[1_1_150px]"
-            inputClassName="text-[15px]"
           />
           <Field
             label="Note"
@@ -208,7 +207,6 @@ export function TxnSheet({
             autoComplete="off"
             maxLength={280}
             className="flex-[1_1_150px]"
-            inputClassName="text-[15px]"
           />
         </div>
 

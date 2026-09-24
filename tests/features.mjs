@@ -175,12 +175,16 @@ check("negative balance reads 'You owe them'", await page.getByText("You owe the
 // ── 5. Statement view ─────────────────────────────────────────────────────
 section("Ledger views");
 await page.getByRole("button", { name: "Statement" }).click();
-await page.getByText("Entry", { exact: true }).waitFor();
+// The column header belongs to the wide layout; at 390px the rows stack and
+// carry their own Dr/Cr markers instead, so wait on a row.
+const table = page.locator("div.overflow-hidden.rounded-\\[18px\\]");
+await table.locator("div.grid.items-center").first().waitFor();
 const stmtRows = await page.locator("div.grid.items-center").count();
 check("statement lists every entry", stmtRows === 4, `${stmtRows} rows`);
-const table = page.locator("div.overflow-hidden.rounded-\\[18px\\]");
-const received = await table.locator("span.text-in").allInnerTexts();
-const paid = await table.locator("span.text-out").allInnerTexts();
+// Strip the stacked layout's "DR "/"CR " marker before comparing amounts.
+const amounts = (t) => t.map((x) => x.replace(/^(DR|CR)\s*/i, "").trim());
+const received = amounts(await table.locator("span.text-in").allInnerTexts());
+const paid = amounts(await table.locator("span.text-out").allInnerTexts());
 check(
   "received and paid land in the right columns",
   received.filter(Boolean).sort().join() === "₹12,000,₹5,000" &&

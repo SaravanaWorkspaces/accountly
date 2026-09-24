@@ -128,6 +128,24 @@
     height: 44px;
     transform: translateY(-50%);
   }
+
+  /*
+   * The same idea for a round icon button, which is narrow in both directions:
+   * centre a 44px square over it and leave the drawn circle alone.
+   */
+  .tap-target-square {
+    position: relative;
+  }
+
+  .tap-target-square::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

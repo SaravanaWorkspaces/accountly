@@ -116,7 +116,9 @@ check("balance stays on the 'You owe them' side", await page.getByText("You owe 
 
 // --- Statement / Bubbles toggle -----------------------------------------
 await page.getByRole("button", { name: "Statement" }).click();
-await page.getByText("Entry", { exact: true }).waitFor();
+// At phone width the statement stacks and drops its column header, so wait on
+// a row rather than on "Entry".
+await page.locator("div.overflow-hidden div.grid.items-center").first().waitFor();
 await page.screenshot({ path: path.join(SHOTS, "04-statement-mobile.png"), fullPage: true });
 const stmtOverflow = await page.evaluate(
   () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
